@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Encodings.Web;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
@@ -29,8 +30,12 @@ var systemInfo = new
 
 if (jsonMode)
 {
-    Console.WriteLine(JsonSerializer.Serialize(systemInfo));
-}
+    var options = new JsonSerializerOptions
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+    Console.WriteLine(JsonSerializer.Serialize(systemInfo, options));
+    }
 else
 {
     Console.WriteLine("CrossApp – практикум з крос-платформного програмування");
