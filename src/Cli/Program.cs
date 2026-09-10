@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System;
+using System.Text;
 using Core;
 
 Console.OutputEncoding = Encoding.UTF8;
@@ -13,3 +14,4 @@ Console.WriteLine($"Архітектура          : {report.ProcessArchitectur
 Console.WriteLine($"RID (визначено)      : {report.DetectedRid}");
 Console.WriteLine($"RID (від .NET)       : {report.ReportedRid}");
 Console.WriteLine($"Каталог              : {report.BaseDirectory}");
+Console.WriteLine($"Примітка збірки      : {report.BuildNote}");
