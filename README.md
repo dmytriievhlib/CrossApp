@@ -43,7 +43,7 @@ CrossApp/
 
 Використано:
 
-* OS: Windows 10
+* OS: Windows 11
 * Architecture: x64
 * .NET SDK: 8.0.403
 * .NET Runtime: 8.0.10
@@ -303,3 +303,139 @@ RID (від .NET)       : linux-x64
 ### Висновок
 
 У лабораторній роботі створено бібліотеку `Core` та консольний застосунок `Cli`, налаштовано залежність `Cli → Core` і multi-targeting для `net8.0` та `net10.0`. Досліджено framework-dependent, self-contained, SingleFile та trimmed режими публікації. Також виконано крос-платформну публікацію `linux-x64` та підтверджено її роботу в Docker-контейнері.
+
+## Лабораторна робота 3 — records, pattern matching та імпорт даних
+
+### Тема
+
+Базові типи домену: `records`, pattern matching, імпорт CSV/JSON.
+
+### Реалізовано
+
+У лабораторній роботі реалізовано:
+
+* `ProductDto` як `record`;
+* `WarehouseDto` як `record`;
+* універсальний `ImportResult<T>`;
+* імпорт товарів із CSV;
+* імпорт товарів із JSON;
+* обробку помилкових CSV-рядків без зупинки всього імпорту;
+* pattern matching через `switch` expression;
+* розпізнавання різнорідних записів за префіксом `P` та `W`;
+* вибір імпортера за розширенням файлу;
+* статистику імпорту.
+
+### Структура Lab 3
+
+```text
+data/
+├── sample.csv
+├── sample.json
+└── mixed.csv
+
+src/
+├── Core/
+│   ├── Dto/
+│   │   ├── ProductDto.cs
+│   │   ├── WarehouseDto.cs
+│   │   └── ImportResult.cs
+│   └── Import/
+│       ├── ProductCsvImporter.cs
+│       ├── ProductJsonImporter.cs
+│       └── MixedCatalogImporter.cs
+└── Cli/
+    └── Program.cs
+```
+
+### CSV-імпорт
+
+Файл `data/sample.csv` містить 10 коректних записів і 3 навмисно пошкоджені записи.
+
+Пошкоджені рядки:
+
+* рядок 12 — недостатня кількість колонок;
+* рядок 13 — некоректне значення кількості;
+* рядок 14 — порожній SKU.
+
+Результат:
+
+```text
+Завантажено записів: 10
+Статистика: усього 13 | прийнято 10 | пропущено 3 | помилок 23,1%
+```
+
+### JSON-імпорт
+
+Для файлу `data/sample.json` використовується `System.Text.Json`.
+
+Імпортер підтримує нечутливість до регістру назв властивостей через:
+
+```csharp
+var options = new JsonSerializerOptions
+{
+    PropertyNameCaseInsensitive = true
+};
+```
+
+Результат тестування:
+
+```text
+Завантажено записів: 5
+Статистика: усього 5 | прийнято 5 | пропущено 0 | помилок 0,0%
+```
+
+### Різнорідні записи
+
+Файл `data/mixed.csv` містить два типи записів:
+
+```text
+P;... — ProductDto
+W;... — WarehouseDto
+```
+
+Розпізнавання виконується через pattern matching та `switch`.
+
+Результат тестування:
+
+```text
+ТОВАР  P-201 ...
+ТОВАР  P-202 ...
+ТОВАР  P-203 ...
+СКЛАД  W-001 ...
+СКЛАД  W-002 ...
+ТОВАР  P-204 ...
+СКЛАД  W-003 ...
+ТОВАР  P-205 ...
+
+Статистика: усього 8 | прийнято 8 | пропущено 0 | помилок 0,0%
+```
+
+### Вибір імпортера
+
+CLI визначає формат за розширенням:
+
+```text
+.csv  → CSV importer
+.json → JSON importer
+```
+
+Для непідтримуваного розширення виводиться повідомлення:
+
+```text
+Непідтримуване розширення файлу: .txt
+Підтримуються: .csv та .json
+```
+
+### Ключові можливості C#
+
+У роботі використано:
+
+* `record`;
+* nullable reference type `string?`;
+* `switch` expression;
+* property/list/type patterns;
+* `when`;
+* `System.Text.Json`;
+* `CultureInfo`/локалізаційно незалежний підхід до числових даних;
+* `IReadOnlyList<T>`;
+* generic `ImportResult<T>`.
