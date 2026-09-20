@@ -1,17 +1,64 @@
-﻿using System;
-using System.Text;
-using Core;
+﻿using Core.Dto;
+using Core.Import;
+using System.IO;
+using System;
 
-Console.OutputEncoding = Encoding.UTF8;
+Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-EnvironmentReport report = EnvironmentInfo.Collect();
+string path = args.Length > 0
+    ? args[0]
+    : Path.Combine("data", "sample.csv");
 
-Console.WriteLine("CrossApp – інформація про середовище");
-Console.WriteLine(new string('-', 52));
-Console.WriteLine($"ОС                  : {report.OsDescription}");
-Console.WriteLine($"Runtime              : {report.FrameworkDescription}");
-Console.WriteLine($"Архітектура          : {report.ProcessArchitecture}");
-Console.WriteLine($"RID (визначено)      : {report.DetectedRid}");
-Console.WriteLine($"RID (від .NET)       : {report.ReportedRid}");
-Console.WriteLine($"Каталог              : {report.BaseDirectory}");
-Console.WriteLine($"Примітка збірки      : {report.BuildNote}");
+if (!File.Exists(path))
+{
+    Console.WriteLine(
+        $"Файл не знайдено: {Path.GetFullPath(path)}");
+
+    return 1;
+}
+
+ImportResult<ProductDto> result;
+
+try
+{
+    result = ProductCsvImporter.Load(path);
+}
+catch (Exception ex)
+{
+    Console.WriteLine(
+        $"Помилка читання файлу: {ex.Message}");
+
+    return 1;
+}
+
+Console.WriteLine("CrossApp – імпорт товарів");
+Console.WriteLine(new string('-', 70));
+
+Console.WriteLine(
+    $"Завантажено записів: {result.Items.Count}");
+
+Console.WriteLine();
+
+foreach (ProductDto product in result.Items.Take(5))
+{
+    Console.WriteLine(
+        $" {product.Id,-6} " +
+        $"{product.Sku,-10} " +
+        $"{product.Name,-30} " +
+        $"{product.Quantity,5} " +
+        $"{product.Unit}");
+}
+
+if (result.Errors.Count > 0)
+{
+    Console.WriteLine();
+    Console.WriteLine(
+        $"Пропущено рядків: {result.Errors.Count}");
+
+    foreach (string error in result.Errors)
+    {
+        Console.WriteLine($" ! {error}");
+    }
+}
+
+return 0;
