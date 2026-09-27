@@ -1,190 +1,83 @@
-﻿using Core.Dto;
-using Core.Import;
+﻿using Core.Domain;
+using System;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-string path = args.Length > 0
-    ? args[0]
-    : Path.Combine("data", "sample.csv");
+Console.WriteLine("=== Сценарій 1: успіх ===");
 
-if (!File.Exists(path))
-{
-    Console.WriteLine(
-        $"Файл не знайдено: {Path.GetFullPath(path)}");
+Product product = Product.Create(
+    "P-001",
+    "sku-001",
+    "Цемент М400 25кг",
+    "шт",
+    100);
 
-    return 1;
-}
+Console.WriteLine(product);
 
-string extension = Path.GetExtension(path).ToLowerInvariant();
+product.RegisterArrival(50);
+product.Issue(30);
 
-switch (extension)
-{
-    case ".csv" when Path.GetFileName(path)
-        .Equals("mixed.csv", StringComparison.OrdinalIgnoreCase):
+Console.WriteLine(product);
 
-        RunMixedCsvImport(path);
-        break;
+Console.WriteLine();
 
-    case ".csv":
+Console.WriteLine("=== Перевірка ToDto / FromDto ===");
 
-        RunCsvImport(path);
-        break;
+var dto = product.ToDto();
 
-    case ".json":
+Console.WriteLine(
+    $"DTO: {dto.Id} | {dto.Sku} | {dto.Name} | " +
+    $"{dto.Quantity} {dto.Unit}");
 
-        RunJsonImport(path);
-        break;
+Product restoredProduct = Product.FromDto(dto);
 
-    default:
+Console.WriteLine(
+    $"Відновлена сутність: {restoredProduct}");
 
-        Console.WriteLine(
-            $"Непідтримуване розширення файлу: {extension}");
+Console.WriteLine(
+    $"Результат: {product.Quantity == restoredProduct.Quantity}");
 
-        Console.WriteLine(
-            "Підтримуються: .csv та .json");
+Console.WriteLine();
 
-        return 1;
-}
+Console.WriteLine("=== Сценарій 2: порушення інваріантів ===");
+TryDo(
+    "видача більша за залишок",
+    () => product.Issue(1000));
 
-return 0;
+TryDo(
+    "порожній SKU",
+    () => Product.Create(
+        "P-002",
+        " ",
+        "Пісок",
+        "т",
+        10));
+
+TryDo(
+    "від'ємний залишок",
+    () => Product.Create(
+        "P-003",
+        "SKU-003",
+        "Цегла",
+        "шт",
+        -5));
+
+Console.WriteLine();
+Console.WriteLine($"Стан після всіх відмов: {product}");
 
 
-static void RunCsvImport(string path)
+static void TryDo(string title, Action action)
 {
     try
     {
-        var result = ProductCsvImporter.Load(path);
+        action();
 
-        Console.WriteLine("CrossApp – імпорт товарів CSV");
-        Console.WriteLine(new string('-', 70));
-
-        PrintProducts(result.Items);
-
-        PrintStatistics(
-            total: result.Items.Count + result.Errors.Count,
-            accepted: result.Items.Count,
-            skipped: result.Errors.Count);
-
-        PrintErrors(result.Errors);
+        Console.WriteLine(
+            $" {title}: виняток НЕ спрацював — інваріант відсутній!");
     }
     catch (Exception ex)
     {
         Console.WriteLine(
-            $"Помилка читання CSV: {ex.Message}");
+            $" {title}: {ex.GetType().Name} — {ex.Message}");
     }
-}
-
-
-static void RunJsonImport(string path)
-{
-    var result = ProductJsonImporter.Load(path);
-
-    Console.WriteLine("CrossApp – імпорт товарів JSON");
-    Console.WriteLine(new string('-', 70));
-
-    PrintProducts(result.Items);
-
-    PrintStatistics(
-        total: result.Items.Count + result.Errors.Count,
-        accepted: result.Items.Count,
-        skipped: result.Errors.Count);
-
-    PrintErrors(result.Errors);
-}
-
-
-static void RunMixedCsvImport(string path)
-{
-    var result = MixedCatalogImporter.Load(path);
-
-    Console.WriteLine("CrossApp – імпорт різнорідних даних");
-    Console.WriteLine(new string('-', 70));
-
-    foreach (object item in result.Items)
-    {
-        switch (item)
-        {
-            case ProductDto product:
-                Console.WriteLine(
-                    $" ТОВАР  {product.Id,-6} " +
-                    $"{product.Sku,-10} " +
-                    $"{product.Name,-30} " +
-                    $"{product.Quantity,5} " +
-                    $"{product.Unit}");
-                break;
-
-            case WarehouseDto warehouse:
-                Console.WriteLine(
-                    $" СКЛАД  {warehouse.Id,-6} " +
-                    $"{warehouse.Name,-20} " +
-                    $"{warehouse.Address,-25} " +
-                    $"місткість: {warehouse.Capacity}");
-                break;
-        }
-    }
-
-    PrintStatistics(
-        total: result.Items.Count + result.Errors.Count,
-        accepted: result.Items.Count,
-        skipped: result.Errors.Count);
-
-    PrintErrors(result.Errors);
-}
-
-
-static void PrintProducts(
-    IReadOnlyList<ProductDto> products)
-{
-    Console.WriteLine(
-        $"Завантажено записів: {products.Count}");
-
-    Console.WriteLine();
-
-    foreach (ProductDto product in products.Take(5))
-    {
-        Console.WriteLine(
-            $" {product.Id,-6} " +
-            $"{product.Sku,-10} " +
-            $"{product.Name,-30} " +
-            $"{product.Quantity,5} " +
-            $"{product.Unit}");
-    }
-}
-
-
-static void PrintErrors(
-    IReadOnlyList<string> errors)
-{
-    if (errors.Count == 0)
-        return;
-
-    Console.WriteLine();
-
-    Console.WriteLine(
-        $"Пропущено рядків: {errors.Count}");
-
-    foreach (string error in errors)
-    {
-        Console.WriteLine($" ! {error}");
-    }
-}
-
-
-static void PrintStatistics(
-    int total,
-    int accepted,
-    int skipped)
-{
-    double errorPercent =
-        total == 0
-            ? 0
-            : skipped * 100.0 / total;
-
-    Console.WriteLine();
-
-    Console.WriteLine(
-        $"Статистика: усього {total} | " +
-        $"прийнято {accepted} | " +
-        $"пропущено {skipped} | " +
-        $"помилок {errorPercent:F1}%");
 }
