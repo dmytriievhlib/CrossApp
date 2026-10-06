@@ -656,3 +656,285 @@ https://github.com/dmytriievhlib/CrossApp.git
 У лабораторній роботі реалізовано доменну сутність `Product`, інкапсуляцію її стану, фабричне створення, перевірку інваріантів, методи зміни стану та перетворення DTO ↔ Entity.
 
 Також виконано додаткові завдання з імпорту DTO у сутності, міжсутнісного правила та керування станами замовлення.
+
+# Лабораторна робота №5
+
+## Тема
+
+**Сервісний шар: інтерфейси, два сховища, ручний DI**
+
+## Мета
+
+Реалізувати сервісний шар, незалежний від конкретного способу зберігання даних, використовуючи інтерфейс `ICatalogStore`, дві взаємозамінні реалізації сховища та ручне впровадження залежностей без використання DI-контейнера.
+
+## Предметна область
+
+Предметна область проєкту — **складський облік товарів**.
+
+Головна доменна сутність — `Product`.
+
+Основні операції з товарами:
+
+* додавання товару;
+* отримання списку товарів;
+* пошук за ID;
+* зміна кількості при надходженні;
+* зміна кількості при видачі;
+* видалення товару;
+* пошук за заданою умовою.
+
+## Структура
+
+```text
+src/
+├── Core/
+│   ├── Abstractions/
+│   │   └── ICatalogStore.cs
+│   ├── Domain/
+│   │   └── Product.cs
+│   ├── Dto/
+│   │   └── ProductDto.cs
+│   ├── Services/
+│   │   └── CatalogService.cs
+│   ├── Storage/
+│   │   ├── InMemoryCatalogStore.cs
+│   │   ├── FileCatalogStore.cs
+│   │   ├── CachingCatalogStore.cs
+│   │   └── StoreFactory.cs
+│   └── SampleData.cs
+│
+└── Cli/
+    └── Program.cs
+
+data/
+└── catalog.json
+```
+
+## Інтерфейс ICatalogStore
+
+Інтерфейс визначає спільний контракт для роботи зі сховищем:
+
+```csharp
+public interface ICatalogStore
+{
+    IReadOnlyList<Product> List();
+    Product? GetById(string id);
+    void Add(Product item);
+    void Update(Product item);
+    bool Remove(string id);
+}
+```
+
+`CatalogService` працює тільки з `ICatalogStore`, тому не залежить від конкретної реалізації сховища.
+
+## Реалізації сховищ
+
+### InMemoryCatalogStore
+
+Зберігає товари в оперативній пам'яті за допомогою `Dictionary<string, Product>`.
+
+Для запуску використовується:
+
+```powershell
+dotnet run --project src/Cli
+```
+
+Початкові дані завантажуються з `SampleData.Products()`.
+
+### FileCatalogStore
+
+Зберігає товари у JSON-файлі.
+
+Для запуску використовується:
+
+```powershell
+dotnet run --project src/Cli -- --file
+```
+
+Файл створюється у каталозі:
+
+```text
+data/catalog.json
+```
+
+Фактичний шлях під час запуску з `net8.0`:
+
+```text
+src/Cli/bin/Debug/net8.0/data/catalog.json
+```
+
+Дані зберігаються між запусками програми.
+
+## Сервісний шар
+
+`CatalogService` отримує `ICatalogStore` через конструктор:
+
+```csharp
+public CatalogService(ICatalogStore store)
+{
+    _store = store
+        ?? throw new ArgumentNullException(nameof(store));
+}
+```
+
+Сервіс реалізує основні операції над товарами та не створює конкретне сховище самостійно.
+
+Схема залежностей:
+
+```text
+Cli
+ ↓
+CatalogService
+ ↓
+ICatalogStore
+ ↙           ↘
+InMemory    File
+```
+
+## Composition Root
+
+Створення конкретних залежностей виконується в `Program.cs` через `StoreFactory`:
+
+```csharp
+ICatalogStore store = StoreFactory.Create(args);
+
+ICatalogStore cachedStore =
+    new CachingCatalogStore(store);
+
+var service = new CatalogService(cachedStore);
+```
+
+Таким чином, `Program.cs` є точкою складання залежностей.
+
+## Додаткові завдання
+
+### 1. CachingCatalogStore
+
+Додано декоратор `CachingCatalogStore`, який працює поверх будь-якого `ICatalogStore`.
+
+Він кешує результати `GetById()` та очищає відповідний запис кешу після `Add()`, `Update()` або `Remove()`.
+
+Схема:
+
+```text
+CatalogService
+      ↓
+CachingCatalogStore
+      ↓
+ICatalogStore
+   ↙       ↘
+Memory    File
+```
+
+### 2. Пошук через Func<Product, bool>
+
+До `CatalogService` додано метод:
+
+```csharp
+public IReadOnlyList<Product> Search(
+    Func<Product, bool> predicate)
+{
+    ArgumentNullException.ThrowIfNull(predicate);
+
+    return _store
+        .List()
+        .Where(predicate)
+        .ToList();
+}
+```
+
+Приклад використання:
+
+```csharp
+var searchResults = service.Search(
+    product => product.Quantity >= 100);
+```
+
+У режимі `InMemoryCatalogStore` за цією умовою було знайдено **11 товарів**.
+
+### 3. StoreFactory
+
+Створено `StoreFactory`, який визначає сховище за аргументами командного рядка.
+
+Без параметра:
+
+```text
+InMemoryCatalogStore
+```
+
+З параметром:
+
+```text
+--file
+```
+
+використовується:
+
+```text
+FileCatalogStore
+```
+
+## Перевірка роботи
+
+При звичайному запуску:
+
+```text
+=== CrossApp — лабораторна робота №5 ===
+Основне сховище: InMemoryCatalogStore
+Декоратор: CachingCatalogStore
+```
+
+При запуску з `--file`:
+
+```text
+=== CrossApp — лабораторна робота №5 ===
+Основне сховище: FileCatalogStore
+Декоратор: CachingCatalogStore
+```
+
+Перевірено:
+
+* виведення списку товарів;
+* додавання товару;
+* надходження товару;
+* видачу товару;
+* пошук за ID;
+* пошук за умовою `Func<Product, bool>`;
+* обробку помилки для неіснуючого ID;
+* видалення товару;
+* роботу файлового сховища;
+* збереження даних у JSON.
+
+## Технології
+
+* C#
+* .NET 8
+* .NET 10
+* Git
+* GitHub
+* JSON
+* `ICatalogStore`
+* ручний Dependency Injection
+* Factory
+* Decorator
+* `Func<Product, bool>`
+
+## Git
+
+Основний коміт лабораторної:
+
+```text
+2f635db lab05: service layer and interchangeable stores
+```
+
+Додаткові завдання:
+
+```text
+8bc7587 lab05: add optional decorator search and factory
+```
+
+Репозиторій:
+
+```text
+https://github.com/dmytriievhlib/CrossApp
+```
