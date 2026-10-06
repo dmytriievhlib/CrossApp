@@ -1,183 +1,132 @@
-﻿using Core.Domain;
-using Core.Dto;
-using Core.Import;
+﻿using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System;
+using System.Text;
+using Core;
+using Core.Abstractions;
+using Core.Services;
+using Core.Storage;
 
-Console.OutputEncoding = System.Text.Encoding.UTF8;
+Console.OutputEncoding = Encoding.UTF8;
 
-Console.WriteLine("=== ЛАБОРАТОРНА РОБОТА №4 ===");
+// Composition Root:
+// саме тут обираємо конкретну реалізацію сховища.
+bool useFile = args.Contains(
+    "--file",
+    StringComparer.OrdinalIgnoreCase);
+
+string dataPath = Path.Combine(
+    AppContext.BaseDirectory,
+    "data",
+    "catalog.json");
+
+ICatalogStore store = useFile
+    ? new FileCatalogStore(dataPath)
+    : new InMemoryCatalogStore(SampleData.Products());
+
+var service = new CatalogService(store);
+
+Console.WriteLine("=== CrossApp — лабораторна робота №5 ===");
+Console.WriteLine($"Сховище: {store.GetType().Name}");
+
+if (useFile)
+{
+    Console.WriteLine($"Файл: {dataPath}");
+}
+
 Console.WriteLine();
 
-Console.WriteLine("=== Основна частина: Product ===");
+// 1. Показ початкового списку
+Console.WriteLine("Початковий список товарів:");
 
-Product product = Product.Create(
-    "P-001",
-    "sku-001",
-    "Цемент М400 25кг",
+IReadOnlyList<Core.Domain.Product> initialProducts =
+    service.All();
+
+if (initialProducts.Count == 0)
+{
+    Console.WriteLine("  Список порожній.");
+}
+else
+{
+    foreach (var product in initialProducts)
+    {
+        Console.WriteLine($"  {product}");
+    }
+}
+
+Console.WriteLine();
+
+// 2. Додавання нового товару
+Console.WriteLine("Додавання нового товару:");
+
+var addedProduct = service.Add(
+    "SKU-NEW",
+    "Тестовий товар",
     "шт",
-    100);
+    10);
 
-Console.WriteLine(product);
-
-product.RegisterArrival(50);
-product.Issue(30);
-
-Console.WriteLine(product);
+Console.WriteLine($"  Додано: {addedProduct}");
 
 Console.WriteLine();
 
-Console.WriteLine("=== ToDto / FromDto ===");
+// 3. Зміна кількості
+Console.WriteLine("Надходження товару:");
 
-var dto = product.ToDto();
-
-Console.WriteLine(
-    $"DTO: {dto.Id} | {dto.Sku} | {dto.Name} | " +
-    $"{dto.Quantity} {dto.Unit}");
-
-Product restoredProduct = Product.FromDto(dto);
+service.Receive(
+    addedProduct.Id,
+    5);
 
 Console.WriteLine(
-    $"Відновлена сутність: {restoredProduct}");
-
-Console.WriteLine(
-    $"Результат: {product.Quantity == restoredProduct.Quantity}");
+    $"  Після надходження: {service.Find(addedProduct.Id)}");
 
 Console.WriteLine();
 
-Console.WriteLine("=== Порушення інваріантів Product ===");
+// 4. Видача товару
+Console.WriteLine("Видача товару:");
 
-TryDo(
-    "видача більша за залишок",
-    () => product.Issue(1000));
-
-TryDo(
-    "порожній SKU",
-    () => Product.Create(
-        "P-002",
-        " ",
-        "Пісок",
-        "т",
-        10));
-
-TryDo(
-    "від'ємний залишок",
-    () => Product.Create(
-        "P-003",
-        "SKU-003",
-        "Цегла",
-        "шт",
-        -5));
+service.Issue(
+    addedProduct.Id,
+    3);
 
 Console.WriteLine(
-    $"Стан після відмов: {product}");
+    $"  Після видачі: {service.Find(addedProduct.Id)}");
 
 Console.WriteLine();
 
-Console.WriteLine("=== Додаткове завдання 1: ImportResult → Entity ===");
+// 5. Пошук
+Console.WriteLine("Пошук за ID:");
 
-var importResult = new ImportResult<ProductDto>(
-    new List<ProductDto>
-    {
-        new(
-            "P-101",
-            "SKU-101",
-            "Товар коректний",
-            "шт",
-            10),
-
-        new(
-            "P-102",
-            "SKU-102",
-            "Ще один товар",
-            "шт",
-            25)
-    },
-    new List<string>
-    {
-        "рядок 15: кількість не є числом"
-    });
-
-var entityResult =
-    ProductEntityImporter.FromImportResult(importResult);
+var found = service.Find(addedProduct.Id);
 
 Console.WriteLine(
-    $"Створено сутностей: {entityResult.Items.Count}");
+    found is null
+        ? "  Товар не знайдено."
+        : $"  Знайдено: {found}");
 
-Console.WriteLine(
-    $"Помилок: {entityResult.Errors.Count}");
+Console.WriteLine();
 
-foreach (string error in entityResult.Errors)
+// 6. Перевірка помилки
+Console.WriteLine("Перевірка помилки:");
+
+try
 {
-    Console.WriteLine($" - {error}");
+    service.Receive("P-999", 10);
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"  Помилка: {ex.Message}");
 }
 
 Console.WriteLine();
 
-Console.WriteLine("=== Додаткове завдання 2: правило між двома сутностями ===");
+// 7. Фінальний список
+Console.WriteLine("Фінальний список товарів:");
 
-var reader = Reader.Create(
-    "R-001",
-    "Іван Петренко");
-
-var libraryService = new LibraryService();
-
-var books = Enumerable.Range(1, 6)
-    .Select(i =>
-        BookCopy.Create(
-            $"B-{i:000}",
-            $"Книга №{i}"))
-    .ToList();
-
-for (int i = 0; i < 5; i++)
+foreach (var product in service.All())
 {
-    libraryService.IssueBook(
-        reader,
-        books[i]);
+    Console.WriteLine($"  {product}");
 }
 
-Console.WriteLine(reader);
-
-TryDo(
-    "шоста видача при 5 відкритих видачах",
-    () => libraryService.IssueBook(reader, books[5]));
-
-Console.WriteLine(reader);
-
 Console.WriteLine();
-
-Console.WriteLine("=== Додаткове завдання 3: OrderStatus ===");
-
-var order = Order.Create("ORD-001");
-
-Console.WriteLine(order);
-
-order.ChangeStatus(OrderStatus.Confirmed);
-
-Console.WriteLine(order);
-
-TryDo(
-    "перехід Confirmed → Cancelled",
-    () => order.ChangeStatus(OrderStatus.Cancelled));
-
-Console.WriteLine(order);
-
-Console.WriteLine();
-
 Console.WriteLine("=== Завершено ===");
-
-static void TryDo(
-    string title,
-    Action action)
-{
-    try
-    {
-        action();
-
-        Console.WriteLine(
-            $" {title}: виконано успішно");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine(
-            $" {title}: {ex.GetType().Name} — {ex.Message}");
-    }
-}
