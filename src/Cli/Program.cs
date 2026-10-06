@@ -1,9 +1,6 @@
 ﻿using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System;
 using System.Text;
-using Core;
 using Core.Abstractions;
 using Core.Services;
 using Core.Storage;
@@ -11,29 +8,19 @@ using Core.Storage;
 Console.OutputEncoding = Encoding.UTF8;
 
 // Composition Root:
-// саме тут обираємо конкретну реалізацію сховища.
-bool useFile = args.Contains(
-    "--file",
-    StringComparer.OrdinalIgnoreCase);
+// конкретне сховище створюється через фабрику.
+ICatalogStore store = StoreFactory.Create(args);
 
-string dataPath = Path.Combine(
-    AppContext.BaseDirectory,
-    "data",
-    "catalog.json");
+// Декоратор кешування.
+// CatalogService працює тільки з ICatalogStore.
+ICatalogStore cachedStore =
+    new CachingCatalogStore(store);
 
-ICatalogStore store = useFile
-    ? new FileCatalogStore(dataPath)
-    : new InMemoryCatalogStore(SampleData.Products());
-
-var service = new CatalogService(store);
+var service = new CatalogService(cachedStore);
 
 Console.WriteLine("=== CrossApp — лабораторна робота №5 ===");
-Console.WriteLine($"Сховище: {store.GetType().Name}");
-
-if (useFile)
-{
-    Console.WriteLine($"Файл: {dataPath}");
-}
+Console.WriteLine($"Основне сховище: {store.GetType().Name}");
+Console.WriteLine($"Декоратор: {cachedStore.GetType().Name}");
 
 Console.WriteLine();
 
@@ -70,7 +57,7 @@ Console.WriteLine($"  Додано: {addedProduct}");
 
 Console.WriteLine();
 
-// 3. Зміна кількості
+// 3. Зміна кількості — надходження
 Console.WriteLine("Надходження товару:");
 
 service.Receive(
@@ -82,7 +69,7 @@ Console.WriteLine(
 
 Console.WriteLine();
 
-// 4. Видача товару
+// 4. Зміна кількості — видача
 Console.WriteLine("Видача товару:");
 
 service.Issue(
@@ -94,7 +81,7 @@ Console.WriteLine(
 
 Console.WriteLine();
 
-// 5. Пошук
+// 5. Пошук за ID
 Console.WriteLine("Пошук за ID:");
 
 var found = service.Find(addedProduct.Id);
@@ -103,6 +90,22 @@ Console.WriteLine(
     found is null
         ? "  Товар не знайдено."
         : $"  Знайдено: {found}");
+
+Console.WriteLine();
+
+// 5.1. Пошук за умовою Func<Product, bool>
+Console.WriteLine("Пошук товарів за умовою:");
+
+var searchResults = service.Search(
+    product => product.Quantity >= 100);
+
+foreach (var product in searchResults)
+{
+    Console.WriteLine($"  {product}");
+}
+
+Console.WriteLine(
+    $"  Знайдено товарів: {searchResults.Count}");
 
 Console.WriteLine();
 
@@ -120,12 +123,34 @@ catch (Exception ex)
 
 Console.WriteLine();
 
-// 7. Фінальний список
+// 7. Перевірка видалення
+Console.WriteLine("Видалення тестового товару:");
+
+bool removed = service.Remove(addedProduct.Id);
+
+Console.WriteLine(
+    removed
+        ? "  Тестовий товар успішно видалено."
+        : "  Товар не знайдено.");
+
+Console.WriteLine();
+
+// 8. Фінальний список
 Console.WriteLine("Фінальний список товарів:");
 
-foreach (var product in service.All())
+IReadOnlyList<Core.Domain.Product> finalProducts =
+    service.All();
+
+if (finalProducts.Count == 0)
 {
-    Console.WriteLine($"  {product}");
+    Console.WriteLine("  Список порожній.");
+}
+else
+{
+    foreach (var product in finalProducts)
+    {
+        Console.WriteLine($"  {product}");
+    }
 }
 
 Console.WriteLine();
