@@ -1,116 +1,91 @@
-﻿using System.Collections.Generic;
+﻿
+using System.IO;
 using System;
 using System.Text;
 using Core.Abstractions;
+using Core.Domain;
+using Core.Events;
+using Core.Notifications;
 using Core.Services;
 using Core.Storage;
-
+using Core.Import;
 Console.OutputEncoding = Encoding.UTF8;
 
-// Composition Root:
-// конкретне сховище створюється через фабрику.
+// 1. Ручне впровадження залежностей (DI).
 ICatalogStore store = StoreFactory.Create(args);
 
-// Декоратор кешування.
-// CatalogService працює тільки з ICatalogStore.
-ICatalogStore cachedStore =
-    new CachingCatalogStore(store);
+var logPath = Path.Combine(
+    AppContext.BaseDirectory,
+    "logs",
+    "app.log");
 
-var service = new CatalogService(cachedStore);
+INotificationSink[] sinks =
+[
+    new ConsoleSink(),
+    new FileSink(logPath)
+];
 
-Console.WriteLine("=== CrossApp — лабораторна робота №5 ===");
-Console.WriteLine($"Основне сховище: {store.GetType().Name}");
-Console.WriteLine($"Декоратор: {cachedStore.GetType().Name}");
+var cachedStore = new CachingCatalogStore(store);
+var service = new CatalogService(cachedStore, sinks);
+
+// 2. Підписники події Changed.
+int changes = 0;
+
+void OnCatalogChanged(
+    object? sender,
+    CatalogChangedEventArgs e)
+{
+    Console.WriteLine(
+        $"Подія: {e.Kind}, товар {e.Id}, залишок {e.QuantityAfter}");
+}
+
+service.Changed += OnCatalogChanged;
+service.Changed += (_, _) => changes++;
+
+Console.WriteLine("=== CrossApp — лабораторна робота №6 ===");
+Console.WriteLine($"Сховище: {store.GetType().Name}");
+Console.WriteLine($"Журнал: {logPath}");
+Console.WriteLine();
+
+// 3. Додавання товару.
+Console.WriteLine("1. Додавання товару:");
+
+var created = service.Add(
+    "SKU-101",
+    "Кабель UTP cat6",
+    "м",
+    50);
 
 Console.WriteLine();
 
-// 1. Показ початкового списку
-Console.WriteLine("Початковий список товарів:");
+// 4. Надходження товару.
+Console.WriteLine("2. Надходження товару:");
 
-IReadOnlyList<Core.Domain.Product> initialProducts =
-    service.All();
+service.Receive(created.Id, 25);
 
-if (initialProducts.Count == 0)
+Console.WriteLine($"Подій отримано: {changes}");
+Console.WriteLine();
+
+// 5. Пошук через Func і лямбду.
+Console.WriteLine("3. Пошук товарів із залишком менше 10:");
+
+var lowStock = service.FindAll(
+    product => product.Quantity < 10);
+
+if (lowStock.Count == 0)
 {
-    Console.WriteLine("  Список порожній.");
+    Console.WriteLine("Товарів із таким залишком немає.");
 }
 else
 {
-    foreach (var product in initialProducts)
-    {
-        Console.WriteLine($"  {product}");
-    }
+    foreach (Product product in lowStock)
+        Console.WriteLine(product);
 }
 
 Console.WriteLine();
 
-// 2. Додавання нового товару
-Console.WriteLine("Додавання нового товару:");
-
-var addedProduct = service.Add(
-    "SKU-NEW",
-    "Тестовий товар",
-    "шт",
-    10);
-
-Console.WriteLine($"  Додано: {addedProduct}");
-
-Console.WriteLine();
-
-// 3. Зміна кількості — надходження
-Console.WriteLine("Надходження товару:");
-
-service.Receive(
-    addedProduct.Id,
-    5);
-
-Console.WriteLine(
-    $"  Після надходження: {service.Find(addedProduct.Id)}");
-
-Console.WriteLine();
-
-// 4. Зміна кількості — видача
-Console.WriteLine("Видача товару:");
-
-service.Issue(
-    addedProduct.Id,
-    3);
-
-Console.WriteLine(
-    $"  Після видачі: {service.Find(addedProduct.Id)}");
-
-Console.WriteLine();
-
-// 5. Пошук за ID
-Console.WriteLine("Пошук за ID:");
-
-var found = service.Find(addedProduct.Id);
-
-Console.WriteLine(
-    found is null
-        ? "  Товар не знайдено."
-        : $"  Знайдено: {found}");
-
-Console.WriteLine();
-
-// 5.1. Пошук за умовою Func<Product, bool>
-Console.WriteLine("Пошук товарів за умовою:");
-
-var searchResults = service.Search(
-    product => product.Quantity >= 100);
-
-foreach (var product in searchResults)
-{
-    Console.WriteLine($"  {product}");
-}
-
-Console.WriteLine(
-    $"  Знайдено товарів: {searchResults.Count}");
-
-Console.WriteLine();
-
-// 6. Перевірка помилки
-Console.WriteLine("Перевірка помилки:");
+// 6. Перевірка помилки.
+Console.WriteLine("4. Перевірка помилки:");
 
 try
 {
@@ -118,39 +93,58 @@ try
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"  Помилка: {ex.Message}");
+    Console.WriteLine($"Помилка: {ex.Message}");
 }
 
+Console.WriteLine($"Подій отримано: {changes}");
 Console.WriteLine();
 
-// 7. Перевірка видалення
-Console.WriteLine("Видалення тестового товару:");
+// 7. Відписка від події.
+Console.WriteLine("5. Відписуємося від події:");
 
-bool removed = service.Remove(addedProduct.Id);
+service.Changed -= OnCatalogChanged;
+
+service.Receive(created.Id, 5);
 
 Console.WriteLine(
-    removed
-        ? "  Тестовий товар успішно видалено."
-        : "  Товар не знайдено.");
+    "Обробник OnCatalogChanged більше не отримує події.");
 
+Console.WriteLine($"Подій отримано: {changes}");
 Console.WriteLine();
 
-// 8. Фінальний список
-Console.WriteLine("Фінальний список товарів:");
+// 8. Видача та видалення.
+Console.WriteLine("6. Видача товару:");
 
-IReadOnlyList<Core.Domain.Product> finalProducts =
-    service.All();
+service.Issue(created.Id, 10);
 
-if (finalProducts.Count == 0)
+Console.WriteLine();
+Console.WriteLine("7. Видалення товару:");
+
+service.Remove(created.Id);
+
+Console.WriteLine();
+Console.WriteLine("8. Імпорт CSV:");
+
+var csvPath = Path.Combine(
+    AppContext.BaseDirectory,
+    "data",
+    "sample.csv");
+
+if (!File.Exists(csvPath))
 {
-    Console.WriteLine("  Список порожній.");
+    Console.WriteLine($"CSV-файл не знайдено: {csvPath}");
 }
 else
 {
-    foreach (var product in finalProducts)
-    {
-        Console.WriteLine($"  {product}");
-    }
+    var result = ProductCsvImporter.Load(
+        csvPath,
+        message => Console.WriteLine($"Пропущено: {message}"));
+
+    Console.WriteLine(
+        $"Імпортовано товарів: {result.Items.Count}");
+
+    Console.WriteLine(
+        $"Помилок: {result.Errors.Count}");
 }
 
 Console.WriteLine();
