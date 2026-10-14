@@ -24,6 +24,9 @@ public static class SampleData
         Product.Create("P-015", "SKU-015", "Дюбель 6x40", "уп", 200),
         Product.Create("P-016", "SKU-016", "Піна клейова", "шт", 55),
         Product.Create("P-017", "SKU-017", "Герметик силіконовий", "шт", 85),
-        Product.Create("P-018", "SKU-018", "Кутник металевий", "шт", 120)
+        Product.Create("P-018", "SKU-018", "Кутник металевий", "шт", 120),
+        Product.Create("P-019", "SKU-019", "Рукавиці робочі", "пар", 5),
+        Product.Create("P-020", "SKU-020", "Щітка малярна", "шт", 2),
+        Product.Create("P-021", "SKU-021", "Стрічка монтажна", "м", 8)
     ];
 }
