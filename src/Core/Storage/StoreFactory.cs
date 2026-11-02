@@ -1,7 +1,7 @@
 using Core.Abstractions;
+using System;
 using System.IO;
 using System.Linq;
-using System;
 
 namespace Core.Storage;
 
@@ -15,8 +15,10 @@ public static class StoreFactory
 
         if (useFile)
         {
+            string currentDirectory = Directory.GetCurrentDirectory();
+
             string dataPath = Path.Combine(
-                AppContext.BaseDirectory,
+                currentDirectory,
                 "data",
                 "catalog.json");
 
