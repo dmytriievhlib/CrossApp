@@ -1642,7 +1642,7 @@ dotnet user-secrets init --project src/Cli
 Додавання секрету:
 
 ```powershell
-dotnet user-secrets set "Integration:ApiKey" "local-dev-key" --project src/Cli
+dotnet user-secrets set "Integration:ApiKey" "<your-api-key>" --project src/Cli
 ```
 
 Перегляд секретів:
