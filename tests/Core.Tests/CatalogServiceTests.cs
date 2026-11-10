@@ -48,4 +48,28 @@ public class CatalogServiceTests
         Assert.Equal(CatalogChangeKind.Added, receivedEvent.Kind);
         Assert.Equal(5, receivedEvent.QuantityAfter);
     }
+
+    [Fact]
+    public void Add_RaisesChangedEvent()
+    {
+        // Arrange
+        var store = new InMemoryCatalogStore();
+        var service = new CatalogService(store);
+
+        var eventCount = 0;
+
+        service.Changed += (_, _) => eventCount++;
+
+
+        // Act
+        // Act
+        Product product = service.Add(
+            "TEST-001",
+            "Тестовий товар",
+            "шт.",
+            10);
+
+        // Assert
+        Assert.Equal(1, eventCount);
+    }
 }

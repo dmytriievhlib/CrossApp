@@ -1,0 +1,57 @@
+Summary
+  Generated on: 02.11.2026 - 15:47:29
+  Coverage date: 02.11.2026 - 15:46:33
+  Parser: Cobertura
+  Assemblies: 1
+  Classes: 35
+  Files: 33
+  Line coverage: 25.4%
+  Covered lines: 244
+  Uncovered lines: 715
+  Coverable lines: 959
+  Total lines: 1621
+  Branch coverage: 17.3% (38 of 219)
+  Covered branches: 38
+  Total branches: 219
+  Method coverage: 29% (45 of 155)
+  Full method coverage: 22.5% (35 of 155)
+  Covered methods: 45
+  Fully covered methods: 35
+  Total methods: 155
+
+Core                                        25.4%
+  Core.Domain.BookCopy                         0%
+  Core.Domain.LibraryService                   0%
+  Core.Domain.Order                            0%
+  Core.Domain.Product                       63.3%
+  Core.Domain.Reader                           0%
+  Core.DomainException                        50%
+  Core.Dto.EntityImportResult<T>               0%
+  Core.Dto.ImportResult<T>                     0%
+  Core.Dto.ProductDto                        100%
+  Core.Dto.WarehouseDto                        0%
+  Core.EnvironmentInfo                         0%
+  Core.EnvironmentReport                       0%
+  Core.Events.CatalogChangedEventArgs        100%
+  Core.Import.MixedCatalogImporter             0%
+  Core.Import.ProductCsvImporter               0%
+  Core.Import.ProductEntityImporter            0%
+  Core.Import.ProductJsonImporter              0%
+  Core.Notifications.ConsoleSink               0%
+  Core.Notifications.FileSink                  0%
+  Core.Reports.AdditionalReportService         0%
+  Core.Reports.BenchmarkResult                 0%
+  Core.Reports.EnumerableReportExtensions   93.3%
+  Core.Reports.GroupSummary                    0%
+  Core.Reports.ProductMovementSummary          0%
+  Core.Reports.ReportBenchmark                 0%
+  Core.Reports.ReportService                51.7%
+  Core.Reports.StockLine                      80%
+  Core.Reports.StockMovement                   0%
+  Core.SampleData                              0%
+  Core.Services.CatalogService              74.4%
+  Core.Storage.CachingCatalogStore             0%
+  Core.Storage.FileCatalogStore                0%
+  Core.Storage.InMemoryCatalogStore         53.8%
+  Core.Storage.JsonCatalogImporter            87%
+  Core.Storage.StoreFactory                    0%

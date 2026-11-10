@@ -1,0 +1,23 @@
+﻿[
+  {
+    "Id": "imp00001",
+    "Sku": "IMP-001",
+    "Name": "Laptop",
+    "Unit": "pcs",
+    "Quantity": -15
+  },
+  {
+    "Id": "imp00002",
+    "Sku": "IMP-002",
+    "Name": "Mouse",
+    "Unit": "pcs",
+    "Quantity": 30
+  },
+  {
+    "Id": "imp00003",
+    "Sku": "IMP-003",
+    "Name": "Keyboard",
+    "Unit": "pcs",
+    "Quantity": 12
+  }
+]

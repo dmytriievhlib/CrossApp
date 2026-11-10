@@ -1,19 +1,199 @@
-﻿using System;
+﻿
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using Core;
+using Core.Abstractions;
+using Core.Configuration;
 using Core.Reports;
 using Core.Services;
 using Core.Storage;
+using Microsoft.Extensions.Configuration;
+
+// --------------------------------------------------
+// 1. Початкові налаштування
+// --------------------------------------------------
 
 Console.OutputEncoding = Encoding.UTF8;
 
-var command = args.FirstOrDefault(
+string baseDirectory = AppContext.BaseDirectory;
+
+string environmentName =
+    Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+    ?? "Development";
+
+// --------------------------------------------------
+// 2. Підготовка аргументів конфігурації
+// --------------------------------------------------
+
+// Перетворюємо --data-path=... на повний ключ
+// конфігурації Storage:DataPath.
+
+string[] configurationArgs = args
+    .Where(a => a.Contains('='))
+    .Select(a =>
+    {
+        if (a.StartsWith(
+            "--data-path=",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return "--Storage:DataPath=" +
+                   a["--data-path=".Length..];
+        }
+
+        return a;
+    })
+    .ToArray();
+
+// --------------------------------------------------
+// 3. Побудова конфігурації
+// --------------------------------------------------
+
+var configurationBuilder = new ConfigurationBuilder()
+    .SetBasePath(baseDirectory)
+    .AddJsonFile(
+        "appsettings.json",
+        optional: false,
+        reloadOnChange: false)
+    .AddJsonFile(
+        $"appsettings.{environmentName}.json",
+        optional: true,
+        reloadOnChange: false)
+    .AddUserSecrets(
+        Assembly.GetExecutingAssembly(),
+        optional: true)
+    .AddEnvironmentVariables(prefix: "CROSSAPP_");
+
+// Підтримка змінної CROSSAPP_DATA_PATH.
+// Вона має нижчий пріоритет, ніж аргументи командного рядка.
+
+string? legacyDataPath =
+    Environment.GetEnvironmentVariable("CROSSAPP_DATA_PATH");
+
+if (legacyDataPath is not null)
+{
+    configurationBuilder.AddInMemoryCollection(
+        new Dictionary<string, string?>
+        {
+            ["Storage:DataPath"] = legacyDataPath
+        });
+}
+
+// Аргументи командного рядка мають найвищий пріоритет.
+
+var config = configurationBuilder
+    .AddCommandLine(configurationArgs)
+    .Build();
+
+AppOptions options =
+    config.Get<AppOptions>() ?? new AppOptions();
+
+// --------------------------------------------------
+// 4. Валідація конфігурації
+// --------------------------------------------------
+
+if (string.IsNullOrWhiteSpace(options.Storage.DataPath))
+{
+    Console.WriteLine(
+        "Помилка конфігурації: Storage:DataPath не може бути порожнім.");
+
+    Environment.ExitCode = 2;
+    return;
+}
+
+if (string.IsNullOrWhiteSpace(options.Storage.FileName) ||
+    !options.Storage.FileName.EndsWith(
+        ".json",
+        StringComparison.OrdinalIgnoreCase))
+{
+    Console.WriteLine(
+        "Помилка конфігурації: Storage:FileName повинен " +
+        "містити назву файлу з розширенням .json.");
+
+    Environment.ExitCode = 2;
+    return;
+}
+
+if (string.IsNullOrWhiteSpace(options.Storage.Format) ||
+    !(options.Storage.Format.Equals(
+          "json",
+          StringComparison.OrdinalIgnoreCase) ||
+      options.Storage.Format.Equals(
+          "csv",
+          StringComparison.OrdinalIgnoreCase)))
+{
+    Console.WriteLine(
+        "Помилка конфігурації: Storage:Format повинен бути json або csv.");
+
+    Environment.ExitCode = 2;
+    return;
+}
+
+// --------------------------------------------------
+// 5. Відображення інформації про програму
+// --------------------------------------------------
+
+string? apiKey = config["Integration:ApiKey"];
+
+Console.WriteLine("====================================");
+Console.WriteLine(" CrossApp - каталог товарів");
+Console.WriteLine("====================================");
+
+Console.WriteLine($"Середовище: {options.EnvironmentName}");
+
+Console.WriteLine(
+    $"API-ключ: {(string.IsNullOrWhiteSpace(apiKey) ? "не задано" : "налаштовано")}");
+
+// --------------------------------------------------
+// 6. Створення сховища та сервісів
+// --------------------------------------------------
+
+var store = StoreFactory.Create(
+    args,
+    options,
+    baseDirectory);
+
+var service = new CatalogService(store);
+
+var reportService = new ReportService();
+
+// --------------------------------------------------
+// 7. Визначення команди
+// --------------------------------------------------
+
+string command = args.FirstOrDefault(
     a => !a.StartsWith("--", StringComparison.Ordinal))
     ?? "report-top";
+
+// --------------------------------------------------
+// 8. Отримання значень аргументів
+// --------------------------------------------------
+
+string? GetArgumentValue(string name)
+{
+    for (int i = 0; i < args.Length - 1; i++)
+    {
+        if (string.Equals(
+            args[i],
+            name,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return args[i + 1];
+        }
+    }
+
+    return null;
+}
+
+// --------------------------------------------------
+// 9. Скасування операції через Ctrl+C
+// --------------------------------------------------
 
 using var cts = new CancellationTokenSource();
 
@@ -21,78 +201,97 @@ Console.CancelKeyPress += (_, e) =>
 {
     e.Cancel = true;
     cts.Cancel();
-    Console.WriteLine("\nЗапит на скасування операції...");
+
+    Console.WriteLine(
+        "\nЗапит на скасування операції...");
 };
 
-var service = new CatalogService(StoreFactory.Create(args));
-var reports = new ReportService();
-var additionalReports = new AdditionalReportService();
-var products = service.All().ToList();
+// --------------------------------------------------
+// 10. Виконання команд
+// --------------------------------------------------
 
 try
 {
     switch (command.ToLowerInvariant())
     {
+        // ==========================================
+        // ЕКСПОРТ КАТАЛОГУ
+        // ==========================================
+
+        case "export":
+            {
+                ICatalogExporter exporter =
+                    CatalogExporterFactory.Create(
+                        options.Storage.Format);
+
+                string exportPath =
+                    options.Storage.ResolveExportPath(baseDirectory);
+
+                exporter.Export(
+                    service.All(),
+                    exportPath);
+
+                Console.WriteLine();
+                Console.WriteLine(
+                    "Експорт каталогу успішно завершено.");
+
+                Console.WriteLine(
+                    $"Формат: {options.Storage.Format}");
+
+                Console.WriteLine(
+                    $"Файл: {exportPath}");
+
+                break;
+            }
+
+        // ==========================================
+        // ІМПОРТ JSON
+        // ==========================================
+
         case "import":
             {
-                int fileIndex = Array.FindIndex(
-                    args,
-                    a => string.Equals(
-                        a,
-                        "--file",
-                        StringComparison.OrdinalIgnoreCase));
-
-                if (fileIndex < 0 ||
-                    fileIndex + 1 >= args.Length ||
-                    args[fileIndex + 1].StartsWith(
-                        "--",
-                        StringComparison.Ordinal))
-                {
-                    Console.WriteLine(
-                        "Вкажіть шлях до JSON-файлу: import --file шлях");
-                    break;
-                }
-
-                string path = args[fileIndex + 1];
+                string path =
+                    GetArgumentValue("--input")
+                    ?? "data/products.json";
 
                 int timeoutSeconds = 60;
 
-                int timeoutIndex = Array.FindIndex(
-                    args,
-                    a => string.Equals(
-                        a,
-                        "--timeout-seconds",
-                        StringComparison.OrdinalIgnoreCase));
+                string? timeoutArgument =
+                    GetArgumentValue("--timeout-seconds");
 
-                if (timeoutIndex >= 0)
+                if (timeoutArgument is not null &&
+                    !int.TryParse(
+                        timeoutArgument,
+                        out timeoutSeconds))
                 {
-                    if (timeoutIndex + 1 >= args.Length ||
-                        !int.TryParse(
-                            args[timeoutIndex + 1],
-                            out timeoutSeconds) ||
-                        timeoutSeconds <= 0)
-                    {
-                        Console.WriteLine(
-                            "Час очікування має бути додатним числом секунд.");
-                        break;
-                    }
+                    Console.WriteLine(
+                        "Некоректне значення таймауту.");
+
+                    break;
+                }
+
+                if (timeoutSeconds <= 0)
+                {
+                    Console.WriteLine(
+                        "Таймаут повинен бути більшим за нуль.");
+
+                    break;
                 }
 
                 var importer = new JsonCatalogImporter();
 
                 var progress = new InlineProgress<int>(
-                    percentage =>
+                    value =>
                     {
-                        Console.Write($"\rХід імпорту: {percentage,3}%");
+                        Console.Write(
+                            $"\rПрогрес імпорту: {value}%   ");
                     });
 
-                Console.WriteLine(
-                    $"Імпорт даних із файлу: {path}");
+                Console.WriteLine();
+                Console.WriteLine($"Файл імпорту: {path}");
+                Console.WriteLine($"Таймаут: {timeoutSeconds} с");
 
-                Console.WriteLine(
-                    $"Таймаут: {timeoutSeconds} с");
-
-                int added = await service.ImportAsync(
+                int imported = await service.ImportAsync(
                     importer,
                     path,
                     cts.Token,
@@ -100,209 +299,393 @@ try
                     TimeSpan.FromSeconds(timeoutSeconds));
 
                 Console.WriteLine();
+                Console.WriteLine(
+                    $"Додано записів: {imported}");
 
                 Console.WriteLine(
-                    $"Імпорт завершено. Додано товарів: {added}");
-
-                Console.WriteLine(
-                    $"Усього товарів у каталозі: {service.All().Count}");
+                    $"Усього записів у каталозі: {service.All().Count}");
 
                 break;
             }
 
-        case "report-top":
-            Console.WriteLine("=== ТОП-5 товарів за залишком ===");
+        // ==========================================
+        // ТОП ТОВАРІВ ЗА КІЛЬКІСТЮ
+        // ==========================================
 
-            foreach (var item in reports.TopByQuantity(products, 5))
+        case "report-top":
             {
+                var result = reportService.TopByQuantity(
+                    service.All(),
+                    5);
+
+                Console.WriteLine();
+                Console.WriteLine("ТОП-5 ТОВАРІВ ЗА КІЛЬКІСТЮ");
+
                 Console.WriteLine(
-                    $"{item.Sku,-10} {item.Name,-32} {item.Quantity,6} {item.Unit}");
+                    "{0,-15} {1,-25} {2,10} {3,-10}",
+                    "SKU",
+                    "Назва",
+                    "Кількість",
+                    "Одиниця");
+
+                foreach (var item in result)
+                {
+                    Console.WriteLine(
+                        "{0,-15} {1,-25} {2,10} {3,-10}",
+                        item.Sku,
+                        item.Name,
+                        item.Quantity,
+                        item.Unit);
+                }
+
+                break;
             }
 
-            break;
+        // ==========================================
+        // ТОВАРИ З МАЛИМ ЗАЛИШКОМ
+        // ==========================================
 
         case "report-low":
-            Console.WriteLine("=== Товари із залишком менше 10 ===");
-
-            foreach (var item in reports.LowStock(products, 10))
             {
+                const int threshold = 10;
+
+                var result = reportService.LowStock(
+                    service.All(),
+                    threshold);
+
+                Console.WriteLine();
                 Console.WriteLine(
-                    $"{item.Sku,-10} {item.Name,-32} {item.Quantity,6} {item.Unit}");
+                    $"ТОВАРИ З ЗАЛИШКОМ МЕНШЕ {threshold}");
+
+                foreach (var item in result)
+                {
+                    Console.WriteLine(
+                        $"{item.Sku,-15} {item.Name,-25} " +
+                        $"{item.Quantity,8} {item.Unit}");
+                }
+
+                break;
             }
 
-            break;
+        // ==========================================
+        // ГРУПУВАННЯ ЗА ОДИНИЦЕЮ ВИМІРЮВАННЯ
+        // ==========================================
 
         case "report-groups":
-            Console.WriteLine("=== Групування за одиницями вимірювання ===");
-
-            foreach (var group in reports.ByUnit(products))
             {
+                var result = reportService.ByUnit(
+                    service.All());
+
+                Console.WriteLine();
                 Console.WriteLine(
-                    $"{group.Key,-8} товарів: {group.Count,3}; загальна кількість: {group.TotalQuantity}");
+                    "ГРУПУВАННЯ ТОВАРІВ ЗА ОДИНИЦЕЮ");
+
+                foreach (var group in result)
+                {
+                    Console.WriteLine(
+                        $"{group.Key,-15} " +
+                        $"Записів: {group.Count,5} " +
+                        $"Загальна кількість: {group.TotalQuantity,8}");
+                }
+
+                break;
             }
 
-            break;
+        // ==========================================
+        // ЗАГАЛЬНА КІЛЬКІСТЬ ТОВАРІВ
+        // ==========================================
 
         case "report-sum":
             {
-                var totals = reports.Totals(products);
+                var totals = reportService.Totals(
+                    service.All());
 
-                Console.WriteLine("=== Загальні підсумки ===");
-                Console.WriteLine($"Кількість товарів: {totals.Items}");
-                Console.WriteLine($"Загальний залишок: {totals.Total}");
-                Console.WriteLine($"Середній залишок: {totals.Average:F2}");
-                Console.WriteLine($"Максимальний залишок: {totals.Max}");
+                Console.WriteLine();
+                Console.WriteLine("ЗАГАЛЬНА СТАТИСТИКА");
+
+                Console.WriteLine(
+                    $"Кількість записів: {totals.Items}");
+
+                Console.WriteLine(
+                    $"Загальна кількість товарів: {totals.Total}");
+
+                Console.WriteLine(
+                    $"Середня кількість: {totals.Average:F2}");
+
+                Console.WriteLine(
+                    $"Максимальна кількість: {totals.Max}");
 
                 break;
             }
+
+        // ==========================================
+        // ВІДКЛАДЕНЕ ВИКОНАННЯ LINQ
+        // ==========================================
 
         case "report-deferred":
             {
-                Console.WriteLine("=== Відкладене виконання LINQ ===");
+                Console.WriteLine();
+                Console.WriteLine(
+                    "ДЕМОНСТРАЦІЯ ВІДКЛАДЕНОГО ВИКОНАННЯ LINQ");
 
-                var source = service.All().ToList();
-                var query = source.Where(p => p.Quantity < 10);
+                var query = service.All()
+                    .Where(p => p.Quantity > 0)
+                    .OrderBy(p => p.Name);
 
                 Console.WriteLine(
-                    $"Дефіцитних до змін: {query.Count()}");
+                    "LINQ-запит створено. Він ще не виконався.");
 
-                source.Add(Core.Domain.Product.Create(
-                    "P-TMP",
-                    "SKU-999",
-                    "Тимчасовий товар",
-                    "шт",
-                    3));
-
+                Console.WriteLine();
                 Console.WriteLine(
-                    $"Дефіцитних після змін: {query.Count()}");
+                    "Результат після початку перебирання:");
 
-                var snapshot = query.ToList();
-                source.Clear();
-
-                Console.WriteLine(
-                    $"У знімку лишилось: {snapshot.Count}");
+                foreach (var product in query)
+                {
+                    Console.WriteLine(
+                        $"{product.Name,-25} " +
+                        $"{product.Quantity,8} {product.Unit}");
+                }
 
                 break;
             }
 
-        case "report-top-units":
-            Console.WriteLine(
-                "=== ТОП-3 одиниці за сумарним залишком ===");
+        // ==========================================
+        // ТОП ОДИНИЦЬ ВИМІРЮВАННЯ
+        // ==========================================
 
-            foreach (var group in reports.TopUnits(products, 3))
+        case "report-top-units":
             {
+                var result = reportService.TopUnits(
+                    service.All(),
+                    5);
+
+                Console.WriteLine();
                 Console.WriteLine(
-                    $"{group.Key,-8} товарів: {group.Count,3}; загальна кількість: {group.TotalQuantity}");
+                    "ТОП-5 ОДИНИЦЬ ЗА ЗАГАЛЬНОЮ КІЛЬКІСТЮ");
+
+                foreach (var group in result)
+                {
+                    Console.WriteLine(
+                        $"{group.Key,-15} " +
+                        $"Записів: {group.Count,5} " +
+                        $"Кількість: {group.TotalQuantity,8}");
+                }
+
+                break;
             }
 
-            break;
+        // ==========================================
+        // ГРУПУВАННЯ ЗА СИНТАКСИСОМ QUERY
+        // ==========================================
 
         case "report-groups-query":
-            Console.WriteLine(
-                "=== Групування: синтаксис запитів LINQ ===");
-
-            foreach (var group in reports.ByUnitQuerySyntax(products))
             {
+                var result = reportService.ByUnitQuerySyntax(
+                    service.All());
+
+                Console.WriteLine();
                 Console.WriteLine(
-                    $"{group.Key,-8} товарів: {group.Count,3}; загальна кількість: {group.TotalQuantity}");
+                    "ГРУПУВАННЯ ЗА ДОПОМОГОЮ QUERY SYNTAX");
+
+                foreach (var group in result)
+                {
+                    Console.WriteLine(
+                        $"{group.Key,-15} " +
+                        $"Записів: {group.Count,5} " +
+                        $"Кількість: {group.TotalQuantity,8}");
+                }
+
+                break;
             }
 
-            break;
+        // ==========================================
+        // JOIN
+        // ==========================================
 
         case "report-join":
             {
+                var products = service.All();
+                var groups = reportService.ByUnit(products);
+
+                var query =
+                    from product in products
+                    join unitGroup in groups
+                        on product.Unit equals unitGroup.Key
+                    select new
+                    {
+                        product.Sku,
+                        product.Name,
+                        product.Unit,
+                        product.Quantity,
+                        UnitTotal = unitGroup.TotalQuantity,
+                        UnitCount = unitGroup.Count
+                    };
+
+                Console.WriteLine();
                 Console.WriteLine(
-                    "=== Товари та їхні переміщення (GroupJoin) ===");
+                    "ОБ'ЄДНАННЯ ДАНИХ ЗА ДОПОМОГОЮ JOIN");
 
-                var movements = new[]
-                {
-                new StockMovement("SKU-001", "Надходження", 20),
-                new StockMovement("SKU-001", "Видача", -5),
-                new StockMovement("SKU-003", "Видача", -100),
-                new StockMovement("SKU-019", "Надходження", 2)
-            };
-
-                foreach (var item in additionalReports.GroupJoinMovements(
-                    products,
-                    movements))
+                foreach (var item in query)
                 {
                     Console.WriteLine(
-                        $"{item.Sku,-10} {item.Name,-30} " +
-                        $"залишок: {item.CurrentQuantity,6}; " +
-                        $"переміщень: {item.MovementCount,2}; " +
-                        $"зміна: {item.NetMovement:+0;-0;0}");
+                        $"{item.Sku} | {item.Name} | {item.Unit} | " +
+                        $"Кількість: {item.Quantity} | " +
+                        $"Усього в групі: {item.UnitTotal} | " +
+                        $"Товарів у групі: {item.UnitCount}");
                 }
-
-                Console.WriteLine(
-                    "Примітка: переміщення в цьому звіті є демонстраційними.");
 
                 break;
             }
+
+        // ==========================================
+        // BENCHMARK
+        // ==========================================
 
         case "report-benchmark":
             {
+                var products = service.All();
+
+                var stopwatch = Stopwatch.StartNew();
+
+                var methodResult =
+                    reportService.ByUnit(products);
+
+                stopwatch.Stop();
+
+                long methodTime = stopwatch.ElapsedTicks;
+
+                stopwatch.Restart();
+
+                var queryResult =
+                    reportService.ByUnitQuerySyntax(products);
+
+                stopwatch.Stop();
+
+                long queryTime = stopwatch.ElapsedTicks;
+
+                Console.WriteLine();
                 Console.WriteLine(
-                    "=== Stopwatch: 100 000 товарів ===");
+                    "ПОРІВНЯННЯ LINQ METHOD SYNTAX І QUERY SYNTAX");
 
                 Console.WriteLine(
-                    "Середній час за 5 вимірюваннями:");
+                    $"Method syntax: {methodTime} ticks");
 
-                foreach (var result in ReportBenchmark.Run())
-                {
-                    Console.WriteLine(
-                        $"{result.Variant}: " +
-                        $"{result.AverageMilliseconds:F3} мс; " +
-                        $"контрольна сума: {result.Checksum}");
-                }
+                Console.WriteLine(
+                    $"Query syntax:  {queryTime} ticks");
+
+                Console.WriteLine(
+                    $"Кількість груп Method syntax: {methodResult.Count}");
+
+                Console.WriteLine(
+                    $"Кількість груп Query syntax: {queryResult.Count}");
+
+                Console.WriteLine(
+                    "Примітка: для малих наборів даних результати " +
+                    "часу можуть суттєво коливатися.");
 
                 break;
             }
 
-        default:
-            Console.WriteLine("Невідома команда. Доступні команди:");
-            Console.WriteLine("  import --file шлях-до-файлу.json");
-            Console.WriteLine("  import --file шлях --timeout-seconds 30");
-            Console.WriteLine("  report-top");
-            Console.WriteLine("  report-low");
-            Console.WriteLine("  report-groups");
-            Console.WriteLine("  report-sum");
-            Console.WriteLine("  report-deferred");
-            Console.WriteLine("  report-top-units");
-            Console.WriteLine("  report-groups-query");
-            Console.WriteLine("  report-join");
-            Console.WriteLine("  report-benchmark");
+        // ==========================================
+        // НЕВІДОМА КОМАНДА
+        // ==========================================
 
-            break;
+        default:
+            {
+                Console.WriteLine();
+                Console.WriteLine(
+                    $"Невідома команда: {command}");
+
+                Console.WriteLine();
+                Console.WriteLine("Доступні команди:");
+
+                Console.WriteLine("  report-top");
+                Console.WriteLine("  report-low");
+                Console.WriteLine("  report-groups");
+                Console.WriteLine("  report-sum");
+                Console.WriteLine("  report-deferred");
+                Console.WriteLine("  report-top-units");
+                Console.WriteLine("  report-groups-query");
+                Console.WriteLine("  report-join");
+                Console.WriteLine("  report-benchmark");
+                Console.WriteLine("  import");
+                Console.WriteLine("  export");
+
+                Console.WriteLine();
+                Console.WriteLine("Параметри:");
+
+                Console.WriteLine("  --file");
+                Console.WriteLine("  --input <шлях>");
+                Console.WriteLine("  --timeout-seconds <секунди>");
+                Console.WriteLine("  --data-path=<шлях>");
+
+                break;
+            }
     }
 }
+
+// --------------------------------------------------
+// 11. Обробка винятків
+// --------------------------------------------------
+
 catch (OperationCanceledException)
 {
+    Console.WriteLine();
     Console.WriteLine("Операцію скасовано.");
 }
+
 catch (TimeoutException ex)
 {
-    Console.WriteLine($"Таймаут імпорту: {ex.Message}");
+    Console.WriteLine();
+    Console.WriteLine(
+        $"Перевищено час очікування: {ex.Message}");
 }
+
 catch (DomainException ex)
 {
-    Console.WriteLine($"Дані відхилено: {ex.Message}");
+    Console.WriteLine();
+    Console.WriteLine(
+        $"Помилка предметної області: {ex.Message}");
 }
+
 catch (JsonException ex)
 {
-    Console.WriteLine($"Помилка формату JSON: {ex.Message}");
+    Console.WriteLine();
+    Console.WriteLine(
+        $"Помилка JSON: {ex.Message}");
 }
+
 catch (FileNotFoundException ex)
 {
-    Console.WriteLine($"Файл не знайдено: {ex.FileName}");
+    Console.WriteLine();
+    Console.WriteLine(
+        $"Файл не знайдено: {ex.Message}");
 }
+
 catch (UnauthorizedAccessException ex)
 {
-    Console.WriteLine($"Немає доступу до файлу: {ex.Message}");
+    Console.WriteLine();
+    Console.WriteLine(
+        $"Немає доступу до файлу: {ex.Message}");
 }
+
 catch (IOException ex)
 {
-    Console.WriteLine($"Помилка введення-виведення: {ex.Message}");
+    Console.WriteLine();
+    Console.WriteLine(
+        $"Помилка введення-виведення: {ex.Message}");
 }
+
+catch (ArgumentException ex)
+{
+    Console.WriteLine();
+    Console.WriteLine(
+        $"Помилка параметрів: {ex.Message}");
+}
+
+// --------------------------------------------------
+// 12. Клас відображення прогресу
+// --------------------------------------------------
 
 public sealed class InlineProgress<T> : IProgress<T>
 {

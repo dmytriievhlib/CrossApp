@@ -1,0 +1,42 @@
+[
+  {
+    "Id": "0da50ce9",
+    "Sku": "SKU-NEW",
+    "Name": "\u0422\u0435\u0441\u0442\u043E\u0432\u0438\u0439 \u0442\u043E\u0432\u0430\u0440",
+    "Unit": "\u0448\u0442",
+    "Quantity": 12,
+    "Note": null
+  },
+  {
+    "Id": "a346cdf0",
+    "Sku": "SKU-NEW",
+    "Name": "\u0422\u0435\u0441\u0442\u043E\u0432\u0438\u0439 \u0442\u043E\u0432\u0430\u0440",
+    "Unit": "\u0448\u0442",
+    "Quantity": 12,
+    "Note": null
+  },
+  {
+    "Id": "imp00001",
+    "Sku": "IMP-001",
+    "Name": "Laptop",
+    "Unit": "pcs",
+    "Quantity": 15,
+    "Note": null
+  },
+  {
+    "Id": "imp00002",
+    "Sku": "IMP-002",
+    "Name": "Mouse",
+    "Unit": "pcs",
+    "Quantity": 30,
+    "Note": null
+  },
+  {
+    "Id": "imp00003",
+    "Sku": "IMP-003",
+    "Name": "Keyboard",
+    "Unit": "pcs",
+    "Quantity": 12,
+    "Note": null
+  }
+]

@@ -1,0 +1,18 @@
+﻿[
+  {
+    "Id": "test0001",
+    "Sku": "TEST-001",
+    "Name": "Test Laptop",
+    "Unit": "pcs",
+    "Quantity": 25,
+    "Note": "Test import"
+  },
+  {
+    "Id": "test0002",
+    "Sku": "TEST-002",
+    "Name": "Test Mouse",
+    "Unit": "pcs",
+    "Quantity": 40,
+    "Note": "Test import"
+  }
+]

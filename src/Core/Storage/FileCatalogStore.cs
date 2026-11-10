@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System;
+using System.Linq;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Core.Abstractions;
 using Core.Domain;
@@ -12,7 +14,10 @@ public sealed class FileCatalogStore : ICatalogStore
 {
     private static readonly JsonSerializerOptions Options = new()
     {
-        WriteIndented = true
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
     private readonly Dictionary<string, Product> _cache =
@@ -69,7 +74,11 @@ public sealed class FileCatalogStore : ICatalogStore
         string json =
             JsonSerializer.Serialize(dtos, Options);
 
-        File.WriteAllText(_path, json);
+        string tempPath = _path + ".tmp";
+
+        File.WriteAllText(tempPath, json);
+
+        File.Move(tempPath, _path, overwrite: true);
     }
 
     public IReadOnlyList<Product> List()
