@@ -1849,4 +1849,243 @@ $LASTEXITCODE
 
 Збирання проєкту завершилося успішно для .NET 8 і .NET 10. Усі 14 модульних тестів пройшли успішно.
 
-Отже, поставлену мету лабораторної роботи досягнуто.
+Отже, поставлену мету лабораторної роботи досягнуто.# Лабораторна робота №10
+## Лабораторна робота № 10 - Minimal API: CRUD над Core, валідація, OpenAPI (Scalar)
+
+## 1. Мета роботи
+
+Ознайомитися з розробкою REST API за допомогою ASP.NET Core Minimal API, реалізувати CRUD-операції для керування товарами, налаштувати маршрутизацію, валідацію даних, обробку помилок і тестування API.
+
+## 2. Використані технології
+
+- C#;
+- .NET 10;
+- ASP.NET Core Minimal API;
+- FluentValidation;
+- Scalar UI;
+- OpenAPI;
+- xUnit;
+- Microsoft.AspNetCore.Mvc.Testing;
+- Dependency Injection (DI).
+
+## 3. Структура проєкту
+
+```text
+CrossApp/
+│
+├── src/
+│   ├── Api/
+│   │   ├── Contracts/
+│   │   │   └── SaveProductRequest.cs
+│   │   ├── Exceptions/
+│   │   │   └── DomainExceptionHandler.cs
+│   │   ├── Validation/
+│   │   │   ├── SaveProductRequestValidator.cs
+│   │   │   └── ValidationFilter.cs
+│   │   ├── Program.cs
+│   │   └── Api.csproj
+│   │
+│   ├── Core/
+│   │   └── Core.csproj
+│   │
+│   └── Cli/
+│
+├── tests/
+│   ├── Core.Tests/
+│   └── Api.Tests/
+│       ├── Exceptions/
+│       │   └── DomainExceptionHandlerTests.cs
+│       └── UnitTest1.cs
+│
+├── CrossApp.sln
+└── README.md
+```
+
+## 4. Реалізовані API-маршрути
+
+| Метод | Маршрут | Призначення |
+|---|---|---|
+| GET | `/` | Перевірка стану API |
+| GET | `/api/products` | Отримання списку товарів |
+| GET | `/api/products/{id}` | Отримання товару за ID |
+| POST | `/api/products` | Створення товару |
+| PUT | `/api/products/{id}` | Оновлення товару |
+| DELETE | `/api/products/{id}` | Видалення товару |
+
+### Пагінація та пошук
+
+Для отримання списку товарів підтримуються параметри:
+
+- `page` — номер сторінки;
+- `pageSize` — кількість товарів на сторінці;
+- `search` — пошук за назвою або SKU.
+
+Приклад:
+
+```http
+GET /api/products?page=1&pageSize=5&search=API
+```
+
+Відповідь містить список товарів, загальну кількість записів, номер сторінки та розмір сторінки.
+
+## 5. Додаткові завдання
+
+### 5.1. Пагінація та пошук
+
+Реалізовано отримання товарів частинами з можливістю пошуку за назвою або SKU. Додано перевірку допустимих значень параметрів сторінки та її розміру.
+
+### 5.2. Валідація за допомогою FluentValidation
+
+Створено `SaveProductRequestValidator` для перевірки обов'язкових полів, максимальної довжини рядків і допустимого значення кількості товару.
+
+Реалізовано універсальний `ValidationFilter<T>`, який автоматично перевіряє запити POST і PUT. У разі помилок API повертає `400 Bad Request` із повідомленнями про порушення правил валідації.
+
+### 5.3. Обробка DomainException
+
+Створено `DomainExceptionHandler`, який реалізує інтерфейс `IExceptionHandler`.
+
+У разі виникнення `DomainException` формується відповідь із кодом `409 Conflict` та описом помилки у форматі Problem Details.
+
+### 5.4. Інтеграційні тести
+
+Створено окремий проєкт `Api.Tests`.
+
+За допомогою `WebApplicationFactory` перевіряється:
+- створення товару через POST;
+- повернення статусу `201 Created`;
+- наявність заголовка `Location`;
+- отримання створеного товару через GET.
+
+Окремо створено тест для перевірки `DomainExceptionHandler`.
+
+## 6. Dependency Injection
+
+У застосунку використовуються такі терміни життя сервісів:
+
+| Реєстрація | Час життя | Призначення |
+|---|---|---|
+| `AddSingleton` | Увесь час роботи застосунку | Спільне сховище товарів |
+| `AddScoped` | Один HTTP-запит | Сервіс каталогу |
+| `AddScoped` | Один HTTP-запит | Валідатор запиту |
+
+Сховище `InMemoryCatalogStore` зареєстровано як Singleton, а `CatalogService` і `SaveProductRequestValidator` — як Scoped.
+
+## 7. Запуск застосунку
+
+Відкрити PowerShell у кореневій папці проєкту:
+
+```powershell
+cd C:\Users\dmytr\CrossApp
+```
+
+Відновити залежності:
+
+```powershell
+dotnet restore
+```
+
+Зібрати проєкт:
+
+```powershell
+dotnet build
+```
+
+Запустити API:
+
+```powershell
+dotnet run --project .\src\Api\Api.csproj
+```
+
+Для перегляду документації та тестування маршрутів у режимі розробки відкрити Scalar UI за адресою:
+
+```text
+http://localhost:5000/scalar
+```
+
+Фактичну адресу та порт можна перевірити у виводі запуску ASP.NET Core.
+
+## 8. Приклади запитів
+
+### Створення товару (POST)
+
+```powershell
+curl.exe -X POST "http://localhost:5000/api/products" `
+  -H "Content-Type: application/json" `
+  -d '{
+    "sku": "API-001",
+    "name": "Тестовий товар",
+    "unit": "шт.",
+    "quantity": 10
+  }'
+```
+
+Очікуваний результат: `201 Created`.
+
+### Перевірка валідації (400 Bad Request)
+
+```powershell
+curl.exe -X POST "http://localhost:5000/api/products" `
+  -H "Content-Type: application/json" `
+  -d '{
+    "sku": "",
+    "name": "",
+    "unit": "",
+    "quantity": 0
+  }'
+```
+
+Очікуваний результат: `400 Bad Request` із повідомленнями про помилки валідації.
+
+### Отримання списку товарів
+
+```powershell
+curl.exe "http://localhost:5000/api/products?page=1&pageSize=5"
+```
+
+### Отримання товару за ID
+
+```powershell
+curl.exe "http://localhost:5000/api/products/ID_ТОВАРУ"
+```
+
+### Видалення товару
+
+```powershell
+curl.exe -X DELETE "http://localhost:5000/api/products/ID_ТОВАРУ"
+```
+
+## 9. Тестування
+
+Запустити інтеграційні тести API:
+
+```powershell
+dotnet test .\tests\Api.Tests\Api.Tests.csproj
+```
+
+Запустити всі тести рішення:
+
+```powershell
+dotnet test
+```
+
+За результатами перевірки:
+
+- інтеграційні тести API пройшли успішно;
+- тестування обробника DomainException пройшло успішно;
+- загальна кількість успішних тестів — 15;
+- помилок — 0;
+- пропущених тестів — 0.
+
+Загальна збірка рішення:
+
+```powershell
+dotnet build
+```
+
+Результат: `Build succeeded`.
+
+## 10. Висновок
+
+У лабораторній роботі №10 реалізовано REST API на основі ASP.NET Core Minimal API для керування товарами. Створено CRUD-маршрути, реалізовано пагінацію та пошук, валідацію запитів за допомогою FluentValidation, обробку доменних винятків і інтеграційне тестування.
+
+Для документування та перевірки API використано OpenAPI та Scalar UI. Усі 15 тестів рішення пройшли успішно, а загальна збірка завершилася без помилок.
