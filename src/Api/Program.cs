@@ -8,7 +8,7 @@ using Core.Services;
 using Core.Storage;
 using FluentValidation;
 using Scalar.AspNetCore;
-
+using Infrastructure;
 var builder = WebApplication.CreateBuilder(args);
 
 // ProblemDetails для стандартизованих повідомлень про помилки.
@@ -18,7 +18,9 @@ builder.Services.AddExceptionHandler<DomainExceptionHandler>();
 builder.Services.AddOpenApi();
 
 // Реєстрація сховища та сервісу.
-builder.Services.AddSingleton<ICatalogStore, InMemoryCatalogStore>();
+builder.Services.AddInfrastructure(
+    builder.Configuration,
+    builder.Environment.ContentRootPath);
 builder.Services.AddScoped<CatalogService>();
 
 // Реєстрація FluentValidation.
